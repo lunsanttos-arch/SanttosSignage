@@ -34,7 +34,11 @@ class MainActivity : AppCompatActivity() {
         .build()
 
     private lateinit var player: ExoPlayer
+    private lateinit var playerView: PlayerView
+    private lateinit var rootFrame: FrameLayout
+    private lateinit var contentFrame: FrameLayout
     private lateinit var overlay: TextView
+    private var displayOrientation: String = "horizontal"
     private var deviceId: String? = null
     private var currentMediaId: String? = null
     private var lastStartedMediaId: String? = null
@@ -56,14 +60,24 @@ class MainActivity : AppCompatActivity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
 
         player = ExoPlayer.Builder(this).build()
-        val playerView = PlayerView(this).apply { useController = false; player = this@MainActivity.player }
-        overlay = TextView(this).apply {
-            setTextColor(0xffffffff.toInt()); textSize = 24f; gravity = Gravity.CENTER; setBackgroundColor(0xff0a0d12.toInt())
+        playerView = PlayerView(this).apply {
+            useController = false
+            player = this@MainActivity.player
         }
-        val frame = FrameLayout(this)
-        frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
-        frame.addView(overlay, FrameLayout.LayoutParams(-1, -1))
-        setContentView(frame)
+        overlay = TextView(this).apply {
+            setTextColor(0xffffffff.toInt())
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xff0a0d12.toInt())
+        }
+
+        rootFrame = FrameLayout(this)
+        contentFrame = FrameLayout(this)
+        contentFrame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+        contentFrame.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        rootFrame.addView(contentFrame, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        setContentView(rootFrame)
+        rootFrame.post { applyDisplayOrientation(displayOrientation) }
 
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
@@ -115,6 +129,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun showStatus(text: String) { overlay.visibility = View.VISIBLE; overlay.text = text }
 
+    private fun applyDisplayOrientation(orientation: String) {
+        displayOrientation = if (orientation == "vertical") "vertical" else "horizontal"
+        if (!::rootFrame.isInitialized || rootFrame.width == 0 || rootFrame.height == 0) {
+            if (::rootFrame.isInitialized) rootFrame.post { applyDisplayOrientation(displayOrientation) }
+            return
+        }
+
+        val lp = contentFrame.layoutParams as FrameLayout.LayoutParams
+        if (displayOrientation == "vertical") {
+            // Android TV remains logically landscape. Rotate the complete player 90 degrees
+            // to the left and swap its logical dimensions so 9:16 fills a portrait-mounted TV.
+            lp.width = rootFrame.height
+            lp.height = rootFrame.width
+            lp.gravity = Gravity.CENTER
+            contentFrame.layoutParams = lp
+            contentFrame.rotation = -90f
+        } else {
+            lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+            lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+            lp.gravity = Gravity.CENTER
+            contentFrame.layoutParams = lp
+            contentFrame.rotation = 0f
+        }
+        contentFrame.requestLayout()
+    }
+
     private suspend fun heartbeatLoop() {
         while (scope.isActive) {
             try {
@@ -164,6 +204,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun applyManifest(json: JSONObject, allowDownload: Boolean) {
+        val orientation = json.optString("orientation", "horizontal")
+        withContext(Dispatchers.Main) { applyDisplayOrientation(orientation) }
+
         val hash = sha256(json.toString())
         if (hash == appliedManifestHash && player.mediaItemCount > 0) return
         val items = json.optJSONArray("items") ?: JSONArray()

@@ -211,7 +211,14 @@ class MainActivity : AppCompatActivity() {
         if (hash == appliedManifestHash && player.mediaItemCount > 0) return
         val items = json.optJSONArray("items") ?: JSONArray()
         if (items.length() == 0) {
-            if (player.mediaItemCount == 0) showStatus("SANTTOS SIGNAGE\n\nPlayer ${deviceCode()}\nAguardando playlist")
+            if (allowDownload) withContext(Dispatchers.IO) { manifestFile.writeText(json.toString()) }
+            withContext(Dispatchers.Main) {
+                player.clearMediaItems()
+                currentMediaId = null
+                lastStartedMediaId = null
+                appliedManifestHash = hash
+                showStatus("SANTTOS SIGNAGE\n\nPlayer ${deviceCode()}\nNenhuma mídia compatível com esta tela")
+            }
             return
         }
 
